@@ -1,0 +1,120 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum IdentityProvider {
+  DIIA
+}
+
+enum PetitionStatus {
+  PENDING
+  ACTIVE
+  REVIEW
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String   @id @default(uuid())
+
+  lastName   String?   // Прізвище
+  firstName  String?   // Ім'я
+  middleName String?   // По батькові
+
+  email        String?  @unique
+  passwordHash String?
+  phone        String?
+
+  resetPasswordToken    String?   @unique
+  resetPasswordExpires  DateTime?
+
+
+  isVerified   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+
+  role         Role     @default(USER)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  identities   Identity[]
+  petitions   Petition[]
+  votes        Vote[]
+}
+
+model Identity {
+  id             String           @id @default(uuid())
+  provider       IdentityProvider
+  providerUserId String
+
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+}
+
+model Petition {
+  id             Int            @id @default(autoincrement())
+  title          String
+  description    String
+  category       String?
+  imageUrl       String?
+
+  postalCode     String
+  settlement     String
+  address        String
+
+  status         PetitionStatus @default(PENDING)
+  officialAnswer String?
+
+  authorId       String
+  author         User           @relation(fields: [authorId], references: [id])
+
+  votes          Vote[]
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Vote {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  petitionId Int
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id])
+  petition   Petition @relation(fields: [petitionId], references: [id])
+
+  @@unique([userId, petitionId])
+  @@index([petitionId])
+}
+
+model NotificationQueue {
+  id          Int      @id @default(autoincrement())
+  petitionId  Int
+  recipient   String
+  subject     String
+  body        String   @db.Text
+  status      String   @default("PENDING") // PENDING, SENT, FAILED
+  createdAt   DateTime @default(now())
+}
