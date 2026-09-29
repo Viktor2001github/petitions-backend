@@ -459,7 +459,7 @@ router.post('/forgot-password', authLimiter, async (req, res, next) => {
       },
     });
 
-    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://petitions-frontend.vercel.app';
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
 
     await sendResetPasswordEmail(user.email, resetUrl);
@@ -506,6 +506,46 @@ router.post('/reset-password', authLimiter, async (req, res, next) => {
 
     return res.json({ message: 'Пароль успішно змінено! Тепер ви можете увійти з новим паролем.' });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/forgot-password', authLimiter, async (req, res, next) => {
+  try {
+    const validated = forgotPasswordSchema.parse(req.body);
+    console.log("--> Спроба скидання для:", validated.email); // LOG
+
+    const user = await prisma.user.findUnique({
+      where: { email: validated.email },
+    });
+
+    if (!user) {
+      console.log("--> Користувача не знайдено в БД"); // LOG
+      return res.json({ message: 'Якщо цей email зареєстровано, ми надіслали інструкції для відновлення.' });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const tokenExpires = new Date(Date.now() + 30 * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetPasswordToken: hashedToken,
+        resetPasswordExpires: tokenExpires,
+      },
+    });
+
+    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
+
+    console.log("--> Відправка листа на:", user.email, "з url:", resetUrl); // LOG
+    await sendResetPasswordEmail(user.email, resetUrl);
+    console.log("--> Лист успішно передано в SMTP!"); // LOG
+
+    return res.json({ message: 'Якщо цей email зареєстровано, ми надіслали інструкції для відновлення.' });
+  } catch (error) {
+    console.error("--> ПОМИЛКА В forgot-password:", error); // LOG
     next(error);
   }
 });
