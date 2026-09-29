@@ -65,7 +65,6 @@ const idGovCallbackSchema = z.object({
   state: z.string().min(1, { message: 'Параметр state відсутній' }),
 });
 
-// Нові схеми для відновлення пароля
 const forgotPasswordSchema = z.object({
   email: z.string().trim().toLowerCase().email({ message: 'Вкажіть коректну email адресу' }),
 });
@@ -256,7 +255,7 @@ router.get('/diia/callback', authLimiter, async (req, res, next) => {
     const token = generateAccessToken(user);
     setAuthTokenCookie(res, token);
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://petitions-frontend.vercel.app';
     return res.redirect(`${frontendUrl}/auth/success`);
 
   } catch (error) {
@@ -396,7 +395,10 @@ router.post('/admin-login', authLimiter, async (req, res, next) => {
       return res.status(403).json({ error: 'Невірний секретний ключ адміністратора' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ 
+      where: { email: email ? email.trim().toLowerCase() : '' } 
+    });
+
     if (!user || !user.passwordHash) {
       return res.status(401).json({ error: 'Невірний email або пароль' });
     }
@@ -437,13 +439,16 @@ router.post('/admin-login', authLimiter, async (req, res, next) => {
 router.post('/forgot-password', authLimiter, async (req, res, next) => {
   try {
     const validated = forgotPasswordSchema.parse(req.body);
+    const normalizedEmail = validated.email.trim().toLowerCase();
+
+    console.log("--> [Forgot Password] Спроба скидання для:", normalizedEmail);
 
     const user = await prisma.user.findUnique({
-      where: { email: validated.email },
+      where: { email: normalizedEmail },
     });
 
-    // Повертаємо однакову відповідь незалежно від того, чи існує email
     if (!user) {
+      console.log("--> [Forgot Password] Користувача не знайдено в БД");
       return res.json({ message: 'Якщо цей email зареєстровано, ми надіслали інструкції для відновлення.' });
     }
 
@@ -462,10 +467,18 @@ router.post('/forgot-password', authLimiter, async (req, res, next) => {
     const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://petitions-frontend.vercel.app';
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
 
-    await sendResetPasswordEmail(user.email, resetUrl);
+    console.log("--> [Forgot Password] Відправка листа на:", user.email, "з url:", resetUrl);
+
+    try {
+      await sendResetPasswordEmail(user.email, resetUrl);
+      console.log("--> [Forgot Password] Лист успішно передано в SMTP!");
+    } catch (mailError) {
+      console.error("--> [Forgot Password Error] Помилка надсилання SMTP:", mailError);
+    }
 
     return res.json({ message: 'Якщо цей email зареєстровано, ми надіслали інструкції для відновлення.' });
   } catch (error) {
+    console.error("--> [Forgot Password Critical Error]:", error);
     next(error);
   }
 });
@@ -506,46 +519,6 @@ router.post('/reset-password', authLimiter, async (req, res, next) => {
 
     return res.json({ message: 'Пароль успішно змінено! Тепер ви можете увійти з новим паролем.' });
   } catch (error) {
-    next(error);
-  }
-});
-
-router.post('/forgot-password', authLimiter, async (req, res, next) => {
-  try {
-    const validated = forgotPasswordSchema.parse(req.body);
-    console.log("--> Спроба скидання для:", validated.email); // LOG
-
-    const user = await prisma.user.findUnique({
-      where: { email: validated.email },
-    });
-
-    if (!user) {
-      console.log("--> Користувача не знайдено в БД"); // LOG
-      return res.json({ message: 'Якщо цей email зареєстровано, ми надіслали інструкції для відновлення.' });
-    }
-
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    const tokenExpires = new Date(Date.now() + 30 * 60 * 1000);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        resetPasswordToken: hashedToken,
-        resetPasswordExpires: tokenExpires,
-      },
-    });
-
-    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
-
-    console.log("--> Відправка листа на:", user.email, "з url:", resetUrl); // LOG
-    await sendResetPasswordEmail(user.email, resetUrl);
-    console.log("--> Лист успішно передано в SMTP!"); // LOG
-
-    return res.json({ message: 'Якщо цей email зареєстровано, ми надіслали інструкції для відновлення.' });
-  } catch (error) {
-    console.error("--> ПОМИЛКА В forgot-password:", error); // LOG
     next(error);
   }
 });
