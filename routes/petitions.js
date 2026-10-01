@@ -56,13 +56,14 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     const allowedMimeTypes = new Set([
       'image/jpeg',
+      'image/jpg',
       'image/png',
       'image/webp',
     ]);
 
     if (!allowedMimeTypes.has(file.mimetype)) {
       return cb(
-        new Error('Дозволені лише файли формату JPG, JPEG та WEBP')
+        new Error('Дозволені лише файли формату JPG, JPEG, PNG та WEBP')
       );
     }
 
@@ -235,7 +236,6 @@ function formatPetitionWithTimer(petition) {
  * Видаляє фотографію з Cloudinary.
  *
  * publicId передається без extension.
- *
  * Наприклад:
  * petitions/abc123xyz
  */
@@ -638,40 +638,29 @@ router.post(
   // ----------------------------------------------------------
 
   (req, res, next) => {
-    upload.single('image')(
-      req,
-      res,
-      (error) => {
-        if (error instanceof multer.MulterError) {
-          if (
-            error.code === 'LIMIT_FILE_SIZE'
-          ) {
-            return res.status(413).json({
-              error:
-                'Файл занадто великий. Максимальний розмір 5 МБ.',
-            });
-          }
-
-          return res.status(400).json({
-            error:
-              'Помилка завантаження файлу',
+    upload.single('image')(req, res, (error) => {
+      if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({
+            error: 'Файл занадто великий. Максимальний розмір 5 МБ.',
           });
         }
 
-        if (error) {
-          console.error(
-            'Cloudinary/Multer upload error:',
-            error
-          );
-
-          return res.status(400).json({
-            error: error.message,
-          });
-        }
-
-        next();
+        return res.status(400).json({
+          error: `Помилка завантаження файлу: ${error.message}`,
+        });
       }
-    );
+
+      if (error) {
+        console.error('Cloudinary/Multer upload error:', error);
+
+        return res.status(400).json({
+          error: error.message || 'Некоректний файл для завантаження',
+        });
+      }
+
+      next();
+    });
   },
 
   // ----------------------------------------------------------
@@ -690,39 +679,36 @@ router.post(
 
       if (!authorId) {
         return res.status(401).json({
-          error:
-            'Необхідна авторизація для створення петиції',
+          error: 'Необхідна авторизація для створення петиції',
         });
       }
+
+      // Збереження public_id для можливого откату у разі помилки валідації
+      if (req.file) {
+        uploadedPublicId = req.file.filename; // multer-storage-cloudinary повертає public_id у filename
+      }
+
       console.log('=== [DEBUG CREATE PETITION] ===');
-    console.log('req.file:', req.file); 
-    console.log('req.body:', req.body);
+      console.log('req.file:', req.file);
+      console.log('req.body:', req.body);
 
       // ------------------------------------------------------
       // VALIDATION
       // ------------------------------------------------------
 
-      const validation =
-        petitionSchema.safeParse(
-          req.body
-        );
+      const validation = petitionSchema.safeParse(req.body);
 
       if (!validation.success) {
         console.warn('⚠️ Помилка валідації Zod:', validation.error.flatten());
-        // Якщо Cloudinary вже завантажив файл,
-        // видаляємо його, бо петиція не пройшла validation.
-        if (req.file?.filename) {
-          await deleteCloudinaryImage(
-            req.file.filename
-          );
+
+        // Якщо файл вже завантажився в Cloudinary, але Zod не пройшов — видаляємо його
+        if (uploadedPublicId) {
+          await deleteCloudinaryImage(uploadedPublicId);
         }
 
         return res.status(400).json({
-          error:
-            'Некоректні дані петиції',
-
-          details:
-            validation.error.flatten(),
+          error: 'Некоректні дані петиції',
+          details: validation.error.flatten(),
         });
       }
 
@@ -735,95 +721,58 @@ router.post(
       let imageUrl = null;
 
       if (req.file) {
-        /*
-         * multer-storage-cloudinary повертає:
-         *
-         * req.file.path
-         *   -> URL зображення Cloudinary
-         *
-         * req.file.filename
-         *   -> public_id Cloudinary
-         */
-
-        imageUrl = req.file.path;
-        uploadedPublicId =
-          req.file.filename;
+        imageUrl = req.file.path; // Повний HTTPS URL від Cloudinary
       }
-      // 🔴 2. ДОДАНО ЛОГУВАННЯ ЗБЕРЕЖЕННЯ URL
-    console.log('📸 Підготовлений imageUrl для БД:', imageUrl);
-    console.log('🆔 Cloudinary Public ID:', uploadedPublicId);
+
+      console.log('📸 Підготовлений imageUrl для БД:', imageUrl);
+      console.log('🆔 Cloudinary Public ID:', uploadedPublicId);
 
       // ------------------------------------------------------
       // CREATE PETITION IN DATABASE
       // ------------------------------------------------------
 
-      const petition =
-        await prisma.petition.create({
-          data: {
-            title: data.title,
+      const petition = await prisma.petition.create({
+        data: {
+          title: data.title,
+          description: data.description,
+          category: data.category || null,
+          postalCode: data.postalCode || null,
+          settlement: data.settlement || null,
+          address: data.address || null,
+          imageUrl: imageUrl,
+          status: 'ACTIVE',
+          authorId,
+        },
 
-            description:
-              data.description,
-
-            category:
-              data.category || null,
-
-            postalCode:
-              data.postalCode || null,
-
-            settlement:
-              data.settlement || null,
-
-            address:
-              data.address || null,
-
-            imageUrl,
-
-            status: 'ACTIVE',
-
-            authorId,
+        include: {
+          author: {
+            select: userSelectFields,
           },
 
-          include: {
-            author: {
-              select: userSelectFields,
-            },
-
-            _count: {
-              select: {
-                votes: true,
-              },
+          _count: {
+            select: {
+              votes: true,
             },
           },
-        });
-        console.log('✅ Петицію успішно створено з ID:', petition.id);
-      // Файл успішно прив'язаний до петиції.
-      uploadedPublicId = null;
+        },
+      });
 
-      return res.status(201).json(
-        formatPetitionWithTimer(
-          petition
-        )
-      );
+      console.log('✅ Петицію успішно створено з ID:', petition.id);
+
+      return res.status(201).json(formatPetitionWithTimer(petition));
     } catch (error) {
       // ------------------------------------------------------
-      // CLEANUP CLOUDINARY
+      // CLEANUP CLOUDINARY IF DATABASE FAIL
       // ------------------------------------------------------
 
       if (uploadedPublicId) {
-        await deleteCloudinaryImage(
-          uploadedPublicId
-        );
+        await deleteCloudinaryImage(uploadedPublicId);
       }
 
-      console.error(
-        'Помилка створення петиції:',
-        error
-      );
+      console.error('Помилка створення петиції:', error);
 
       return res.status(500).json({
-        error:
-          'Помилка при створенні петиції',
+        error: 'Помилка при створенні петиції',
       });
     }
   }
@@ -963,17 +912,14 @@ router.post(
           await prisma.petition.updateMany({
             where: {
               id: petitionId,
-
               status: {
                 not: 'REVIEW',
               },
             },
-
             data: {
               status: 'REVIEW',
             },
           });
-
         currentStatus = 'REVIEW';
 
         // ----------------------------------------------------
@@ -998,19 +944,12 @@ router.post(
                 'Помилка надсилання email адміну:',
                 err
               );
-            });
-          }
-        }
-      }
-
+            });}}}
       return res.json({
         message:
           'Ваш голос успішно враховано!',
-
         totalVotes,
-
         status: currentStatus,
-
         daysLeft,
       });
     } catch (error) {
@@ -1018,14 +957,10 @@ router.post(
         'Помилка при голосуванні:',
         error
       );
-
       return res.status(500).json({
         error:
           'Помилка сервера під час голосування',
-      });
-    }
-  }
-);
+      });}});
 
 // ============================================================
 // EXPORT
