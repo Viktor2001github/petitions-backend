@@ -232,33 +232,6 @@ function formatPetitionWithTimer(petition) {
   };
 }
 
-/**
- * Видаляє фотографію з Cloudinary.
- *
- * publicId передається без extension.
- * Наприклад:
- * petitions/abc123xyz
- */
-async function deleteCloudinaryImage(publicId) {
-  if (!publicId) {
-    return;
-  }
-
-  try {
-    await cloudinary.uploader.destroy(publicId, {
-      resource_type: 'image',
-    });
-
-    console.log(
-      `Cloudinary image deleted: ${publicId}`
-    );
-  } catch (error) {
-    console.error(
-      'Помилка видалення файлу з Cloudinary:',
-      error
-    );
-  }
-}
 
 // ============================================================
 // 1. GET /recent-votes
