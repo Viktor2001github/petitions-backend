@@ -464,8 +464,8 @@ router.post('/forgot-password', authLimiter, async (req, res, next) => {
       },
     });
 
-    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://petitions-frontend.vercel.app';
-    const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'https://petitions-frontend.vercel.app';
+    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
 
     console.log("--> [Forgot Password] Відправка листа на:", user.email, "з url:", resetUrl);
 
@@ -475,8 +475,8 @@ router.post('/forgot-password', authLimiter, async (req, res, next) => {
     } catch (mailError) {
       console.error("--> [Forgot Password Error] Помилка надсилання SMTP:", mailError);
     }
-
     return res.json({ message: 'Якщо цей email зареєстровано, ми надіслали інструкції для відновлення.' });
+    
   } catch (error) {
     console.error("--> [Forgot Password Critical Error]:", error);
     next(error);
