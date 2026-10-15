@@ -27,25 +27,7 @@ app.use(helmet({
 }));
 
 // 2. CORS
-const allowedOrigins = [
-  'https://boyarka-portal-petitions.vercel.app',
-  'http://localhost:5173', // для локальної розробки (якщо потрібно)
-  'http://localhost:3000'
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // Дозволяємо запити без origin (наприклад, Postman, мобільні додатки або cURL)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(cors());
 // 3. Rate Limiter (Захист від ботів та DDoS)
 const isDev = process.env.NODE_ENV === 'development';
 
