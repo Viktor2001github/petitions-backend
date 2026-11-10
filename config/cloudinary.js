@@ -10,7 +10,7 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'petitions', // Папка в Cloudinary
+    folder: process.env.CLOUDINARY_FOLDER || 'petitions', // Папка в Cloudinary
     allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
   },
 });
